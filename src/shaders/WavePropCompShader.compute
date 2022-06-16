@@ -1,0 +1,45 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+struct displacedVert 
+{
+    float height;
+    float3 normal;
+};
+//Read only buffers
+StructuredBuffer<displacedVert> currentHeightBuffer;
+StructuredBuffer<displacedVert> previousHeightBuffer;
+//ReadWrite buffer
+RWStructuredBuffer<displacedVert> nextHeightBuffer;
+//Constants
+float A;
+float B;
+float h;
+float tempDampCoefficient;
+uint  gridSize;
+
+//Convert 2d coordinates into 1d coordinate (HLSL buffers flatten the array)
+int coordinateConverter(int x, int y){
+    return int((gridSize * y)+ x);
+}
+
+//How many threads?
+[numthreads(32,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    //Basic damping, TODO: add more interesting damping
+    if(id.x == 0 || id.y == 0 || id.x == gridSize - 1 || id.y == gridSize - 1){
+        nextHeightBuffer[coordinateConverter(id.x,id.y)].height = 0;
+        nextHeightBuffer[coordinateConverter(id.x,id.y)].normal = float3(0,1,0);
+    } else {
+        nextHeightBuffer[coordinateConverter(id.x,id.y)].height =
+                                                        ((A * (currentHeightBuffer[coordinateConverter(id.x-1, id.y)].height + currentHeightBuffer[coordinateConverter(id.x+1, id.y)].height 
+                                                            + currentHeightBuffer[coordinateConverter(id.x, id.y-1)].height + currentHeightBuffer[coordinateConverter(id.x, id.y+1)].height))
+                                                        + ((B * currentHeightBuffer[coordinateConverter(id.x,id.y)].height) - previousHeightBuffer[coordinateConverter(id.x,id.y)].height));
+        nextHeightBuffer[coordinateConverter(id.x,id.y)].height *= tempDampCoefficient;
+        //Normal Calculation
+        float xheight = (currentHeightBuffer[coordinateConverter(id.x-1, id.y)].height - currentHeightBuffer[coordinateConverter(id.x+1, id.y)].height);
+        float zheight = (currentHeightBuffer[coordinateConverter(id.x, id.y-1)].height - currentHeightBuffer[coordinateConverter(id.x, id.y+1)].height);
+        nextHeightBuffer[coordinateConverter(id.x,id.y)].normal = float3(xheight, (2.0f * h), zheight);
+    }
+}

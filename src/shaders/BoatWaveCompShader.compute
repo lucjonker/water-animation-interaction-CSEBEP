@@ -1,0 +1,72 @@
+#pragma kernel WakeGenerator
+#pragma kernel Clear
+
+struct boatPointInfo 
+{
+    float2 direction;
+    float2 uv;
+    float index;
+};
+StructuredBuffer<boatPointInfo> boatPointBuffer;
+
+globallycoherent RWTexture2D<float> res;
+globallycoherent RWTexture2D<float> clear;
+float texResolution;
+uint competitorPositionsToStore;
+uint numCompetitors;
+
+uint2 uvToPixel(float2 uv){
+    return uint2(floor(texResolution * uv.x),floor(texResolution * uv.y)); 
+}
+
+float calculateWaveValueAtPoint2 (float r, float2 difVec, float2 direction, uint index){
+    //Calculates circle strength at a given pixel
+    float sqrDist = dot(difVec, difVec);
+    float directionCoefficient = abs(dot(normalize(direction), normalize(difVec))); 
+    float alpha = abs(r - sqrDist) * 100000;
+    float ret = lerp(1,0.05,directionCoefficient + 0.15) * (0.00000003 / ((alpha * alpha) + (0.00002 * (index)) + 0.00000003));
+    return (ret);
+}
+
+[numthreads(32,32,1)]
+void Clear (uint3 id : SV_DispatchThreadID)
+{
+    //Clears the texture before the next calculation
+    clear[id.xy] = 0;
+}
+
+[numthreads(64,1,1)]
+void WakeGenerator (uint3 id : SV_DispatchThreadID)
+{   
+    boatPointInfo info = boatPointBuffer[id.x];
+
+    //Radius of given circle
+    float r = 0.000008 * ((info.index) * 0.0075f);
+    float dist = sqrt(r);
+    //Offset for pixel square
+    float2 offset = 2 * float2(dist, dist);
+
+    //Determine square pixel box to calculate values within
+    uint2 lower = uvToPixel(info.uv - offset);
+    uint2 upper = uvToPixel(info.uv + offset);
+
+    //Declare variables for loop
+    float x1 = 0;
+    uint2 i = uint2(0,0);
+    float2 difVec = float2(0,0);
+    float value = 0;
+    // Calculate circle values for each pixel
+    for(uint x = lower.x; x < upper.x; x++){
+        //Set x values
+        x1 = x / texResolution;
+        difVec.x = x1 - (info.uv.x);
+        i.x = x;
+        for(uint y = lower.y; y < upper.y; y++){
+            //Set y values
+            i.y = y;
+            difVec.y = (y / texResolution) - (info.uv.y);
+            value = calculateWaveValueAtPoint2(r, difVec, info.direction, info.index);
+            res[i] += value;
+        }
+    }
+}
